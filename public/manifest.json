@@ -1,0 +1,8 @@
+{
+  "short_name": "EduControl",
+  "name": "Sistema de Planillas Educational Control",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0b172a",
+  "background_color": "#f5f7fb"
+}
