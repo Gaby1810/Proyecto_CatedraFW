@@ -359,25 +359,43 @@ function App() {
             <tr>
               <th>Empleado</th>
               <th>Período</th>
-              <th>Horas</th>
-              <th>Bono</th>
-              <th>Bruto</th>
-              <th>Descuentos</th>
-              <th>Neto</th>
+              <th title="Horas ordinarias (≤ 160 h)">H. Ord.</th>
+              <th title="Horas extraordinarias — recargo 100 % (Art. 168 CT)">H. Extra</th>
+              <th>Bonificación</th>
+              <th>Salario bruto</th>
+              <th title="ISSS empleado: 3 % s/ salario, tope $1 000 (Ley del ISSS Art. 29)">ISSS (3 %)</th>
+              <th title="AFP empleado: 7.25 % s/ salario, sin tope (Ley SAP)">AFP (7.25 %)</th>
+              <th title="Retención ISR mensual según tabla DGII (Cód. Tributario Art. 156)">ISR / Renta</th>
+              <th>Salario neto</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr key={row.id_planilla}>
-                <td>{row.nombreEmpleado}</td>
-                <td>{row.periodo}</td>
-                <td>{row.horasTrabajadas}</td>
-                <td>${Number(row.bonificacion).toFixed(2)}</td>
-                <td>${Number(row.salarioBruto).toFixed(2)}</td>
-                <td>${Number(row.totalDescuentos).toFixed(2)}</td>
-                <td>${Number(row.salarioNeto).toFixed(2)}</td>
-              </tr>
-            ))}
+            {rows.map((row) => {
+              const horasOrd = Math.min(row.horasTrabajadas, 160);
+              const horasExt = Math.max(0, row.horasTrabajadas - 160);
+              const descuentos = row.descuentosAplicados || [];
+              const montoIsss  = descuentos.find(d => d.tipo?.toUpperCase() === "ISSS")?.montoDescuento ?? 0;
+              const montoAfp   = descuentos.find(d => d.tipo?.toUpperCase() === "AFP")?.montoDescuento ?? 0;
+              const montoRenta = descuentos.find(d => d.tipo?.toUpperCase() === "RENTA")?.montoDescuento ?? 0;
+              return (
+                <tr key={row.id_planilla}>
+                  <td>{row.nombreEmpleado}</td>
+                  <td>{row.periodo}</td>
+                  <td>{horasOrd}</td>
+                  <td>
+                    {horasExt > 0
+                      ? <strong style={{ color: "var(--accent)" }}>{horasExt} h</strong>
+                      : <span style={{ color: "var(--light-muted)" }}>—</span>}
+                  </td>
+                  <td>${Number(row.bonificacion).toFixed(2)}</td>
+                  <td>${Number(row.salarioBruto).toFixed(2)}</td>
+                  <td style={{ color: "var(--danger)" }}>−${montoIsss.toFixed(2)}</td>
+                  <td style={{ color: "var(--danger)" }}>−${montoAfp.toFixed(2)}</td>
+                  <td style={{ color: "var(--danger)" }}>−${montoRenta.toFixed(2)}</td>
+                  <td><strong>${Number(row.salarioNeto).toFixed(2)}</strong></td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -715,6 +733,23 @@ function App() {
                     onChange={(event) => setPayrollForm({ ...payrollForm, bonificacion: event.target.value })}
                   />
                 </label>
+              </div>
+              <div style={{
+                background: "var(--accent-soft)",
+                border: "1px solid var(--line)",
+                borderRadius: "var(--radius)",
+                padding: "10px 14px",
+                fontSize: "0.78rem",
+                color: "var(--muted)",
+                lineHeight: 1.6,
+                marginBottom: "12px"
+              }}>
+                <strong style={{ color: "var(--ink)", display: "block", marginBottom: 4 }}>
+                  Cálculo de salario — Código de Trabajo El Salvador
+                </strong>
+                <span>≤ 160 h/mes: tarifa ordinaria (salario base ÷ 160).</span><br />
+                <span>&gt; 160 h/mes: horas extras se pagan al <strong>doble</strong> de la tarifa ordinaria (Art. 168 CT).</span><br />
+                <span>Descuentos de ley: ISSS 3 % (tope $1 000) · AFP 7.25 % · ISR según tabla DGII.</span>
               </div>
               <button className="primary-button" type="submit">Procesar y guardar</button>
             </form>
