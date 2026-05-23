@@ -1,5 +1,6 @@
 package sv.edu.udb.service;
 
+import sv.edu.udb.dto.response.DashboardResponse;
 import sv.edu.udb.dto.response.PlanillaResponse;
 import sv.edu.udb.dto.response.ReportePlanillaResponse;
 
@@ -13,4 +14,6 @@ public interface IReporteService {
     List<PlanillaResponse> obtenerMisBoletas();
 
     ReportePlanillaResponse generarReportePorPeriodo(String periodo);
+
+    DashboardResponse getDashboard();
 }

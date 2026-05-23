@@ -3,9 +3,12 @@ package sv.edu.udb.service.impl;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import sv.edu.udb.dto.response.DashboardResponse;
 import sv.edu.udb.dto.response.DescuentoAplicadoResponse;
 import sv.edu.udb.dto.response.PlanillaResponse;
 import sv.edu.udb.dto.response.ReportePlanillaResponse;
+import sv.edu.udb.dto.response.ResumenPeriodoDTO;
+import sv.edu.udb.repository.EmpleadoRepository;
 import sv.edu.udb.entity.Planilla;
 import sv.edu.udb.entity.PlanillaDescuento;
 import sv.edu.udb.exception.ResourceNotFoundException;
@@ -26,6 +29,9 @@ public class ReporteServiceImpl implements IReporteService {
 
     @Autowired
     private PlanillaDescuentoRepository planillaDescuentoRepository;
+
+    @Autowired
+    private EmpleadoRepository empleadoRepository;
 
     @Autowired
     private CurrentUserService currentUserService;
@@ -70,6 +76,34 @@ public class ReporteServiceImpl implements IReporteService {
         reporte.setPlanillas(planillas);
         return reporte;
     }
+
+    @Override
+    public DashboardResponse getDashboard() {
+        DashboardResponse dash = new DashboardResponse();
+        dash.setTotalEmpleados(empleadoRepository.count());
+        dash.setTotalPlanillas(planillaRepository.count());
+        dash.setTotalSalarioBruto(nvl(planillaRepository.sumSalarioBruto()));
+        dash.setTotalDescuentos(nvl(planillaRepository.sumTotalDescuentos()));
+        dash.setTotalSalarioNeto(nvl(planillaRepository.sumSalarioNeto()));
+
+        List<ResumenPeriodoDTO> resumen = planillaRepository.findResumenPorPeriodo().stream()
+                .map(row -> new ResumenPeriodoDTO(
+                        (String)  row[0],
+                        ((Number) row[1]).longValue(),
+                        ((Number) row[2]).doubleValue()))
+                .collect(Collectors.toList());
+        dash.setResumenPorPeriodo(resumen);
+        dash.setPeriodosActivos(resumen.size());
+
+        List<PlanillaResponse> ultimas = planillaRepository.findUltimas6().stream()
+                .map(this::mapToPlanillaResponse)
+                .collect(Collectors.toList());
+        dash.setUltimasPlanillas(ultimas);
+
+        return dash;
+    }
+
+    private double nvl(Double v) { return v == null ? 0.0 : v; }
 
     private PlanillaResponse mapToPlanillaResponse(Planilla planilla) {
         List<PlanillaDescuento> detalles = planillaDescuentoRepository.buscarPorIdPlanilla(planilla.getId_planilla());

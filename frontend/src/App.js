@@ -218,13 +218,14 @@ function App() {
   const [employeePayrolls, setEmployeePayrolls] = useState([]);
   const [myPayrolls, setMyPayrolls] = useState([]);
   const [periodReport, setPeriodReport] = useState(null);
+  const [dashboard, setDashboard] = useState(null);
 
   const roles = profile?.roles || [];
   const canManage = roles.includes("ROLE_ADMIN") || roles.includes("ROLE_RRHH");
   const isEmployee = roles.includes("ROLE_EMPLEADO");
   const sectionTitle =
     {
-      resumen: "Centro de control",
+      resumen: canManage ? "Dashboard ejecutivo" : "Centro de control",
       empleados: "Gestión de talento",
       descuentos: "Motor de deducciones",
       planillas: "Operación de planillas",
@@ -242,6 +243,7 @@ function App() {
       setProfile(me);
       if (me.roles.includes("ROLE_ADMIN") || me.roles.includes("ROLE_RRHH")) {
         await Promise.all([loadEmployees(), loadDiscounts()]);
+        loadDashboard().catch(() => {});   // no bloquea el login
       }
       if (me.roles.includes("ROLE_EMPLEADO")) {
         await loadMyPayrolls();
@@ -340,6 +342,7 @@ function App() {
     setEmployeePayrolls([]);
     setMyPayrolls([]);
     setPeriodReport(null);
+    setDashboard(null);
     setActiveSection("resumen");
   }
 
@@ -482,10 +485,23 @@ function App() {
     }
   }
 
+  async function loadDashboard() {
+    try {
+      const data = await apiRequest("/reportes/dashboard");
+      setDashboard(data);
+    } catch {
+      // silencioso — el dashboard es un complemento, no bloquea flujo
+    }
+  }
+
   async function loadPeriodReport(periodo) {
+    if (!periodo || !String(periodo).trim()) {
+      showBanner("Escribe un período válido, por ejemplo: 05-2026", "error");
+      return;
+    }
     try {
       setLoading(true);
-      const data = await apiRequest(`/reportes/periodo/${periodo}`);
+      const data = await apiRequest(`/reportes/periodo/${String(periodo).trim()}`);
       setPeriodReport(data);
       setActiveSection("reportes");
     } catch (error) {
@@ -726,26 +742,133 @@ function App() {
           </div>
         )}
 
-        {activeSection === "resumen" && (
+        {activeSection === "resumen" && !canManage && (
           <section className="grid two-up">
             <article className="panel stat-panel">
-              <h3>Gestion pensada para instituciones</h3>
-              <p>Una misma plataforma puede adaptarse a colegios, universidades y academias con una operacion clara.</p>
+              <h3>Tu cuenta está activa</h3>
+              <p>Accede a tus boletas de pago desde la sección <strong>Mis boletas</strong> en el menú lateral.</p>
             </article>
             <article className="panel stat-panel">
-              <h3>Control administrativo ordenado</h3>
-              <p>Empleados, deducciones, periodos y boletas se presentan con una logica facil de seguir para RRHH.</p>
-            </article>
-            <article className="panel stat-panel">
-              <h3>Experiencia profesional</h3>
-              <p>La interfaz prioriza confianza, claridad y una presencia visual que luce lista para implementacion real.</p>
-            </article>
-            <article className="panel stat-panel">
-              <h3>Escalable y replicable</h3>
-              <p>La propuesta visual y funcional permite presentar el sistema como un producto generico de gestion educativa.</p>
+              <h3>Descargas disponibles</h3>
+              <p>Cada boleta puede descargarse en PDF con todos los detalles de ley incluidos.</p>
             </article>
           </section>
         )}
+
+        {activeSection === "resumen" && canManage && (() => {
+          // ── helpers de visualización ──────────────────────────────────
+          const kpi = (label, value, sub, color) => (
+            <article className="panel" style={{ borderTop: `3px solid ${color}`, padding: "20px 22px" }}>
+              <p style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".6px", margin: 0 }}>{label}</p>
+              <p style={{ fontSize: "2rem", fontWeight: 800, color, margin: "6px 0 2px", lineHeight: 1 }}>{value}</p>
+              {sub && <p style={{ fontSize: "0.75rem", color: "var(--muted)", margin: 0 }}>{sub}</p>}
+            </article>
+          );
+
+          const maxNeto = dashboard?.resumenPorPeriodo?.length
+            ? Math.max(...dashboard.resumenPorPeriodo.map(p => p.totalSalarioNeto))
+            : 1;
+
+          const fmt = n => `$${Number(n).toFixed(2)}`;
+
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+              {/* ── KPI row ─────────────────────────────────────────────── */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14 }}>
+                {kpi("Empleados activos",   employees.length,                                         `${employees.filter(e => e.tipo === "DOCENTE").length} docentes · ${employees.filter(e => e.tipo === "ADMINISTRATIVO").length} admin`, "#0570de")}
+                {kpi("Planillas procesadas", dashboard?.totalPlanillas ?? "—",                         "histórico acumulado", "#0a2540")}
+                {kpi("Neto total pagado",    dashboard ? fmt(dashboard.totalSalarioNeto) : "—",        dashboard ? `Bruto ${fmt(dashboard.totalSalarioBruto)}` : "cargando...", "#05a27e")}
+                {kpi("Períodos activos",     dashboard?.periodosActivos ?? "—",                        dashboard ? `Descuentos ${fmt(dashboard.totalDescuentos)}` : "cargando...", "#7b5ea7")}
+              </div>
+
+              {/* ── segunda fila: barras por período + actividad reciente ─ */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+
+                {/* gráfico de barras por período */}
+                <article className="panel" style={{ padding: "20px 22px" }}>
+                  <h3 style={{ marginBottom: 16, fontSize: "0.9rem" }}>Neto pagado por período</h3>
+                  {dashboard?.resumenPorPeriodo?.length ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                      {dashboard.resumenPorPeriodo.map(p => (
+                        <div key={p.periodo}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem", marginBottom: 5 }}>
+                            <span style={{ fontWeight: 600, color: "var(--ink)" }}>{p.periodo}</span>
+                            <span style={{ color: "var(--muted)" }}>{p.cantidadPlanillas} planilla{p.cantidadPlanillas !== 1 ? "s" : ""} · <strong style={{ color: "#05a27e" }}>{fmt(p.totalSalarioNeto)}</strong></span>
+                          </div>
+                          <div style={{ height: 8, background: "var(--line)", borderRadius: 99, overflow: "hidden" }}>
+                            <div style={{
+                              height: "100%",
+                              width: `${Math.round((p.totalSalarioNeto / maxNeto) * 100)}%`,
+                              background: "linear-gradient(90deg, #0570de, #05a27e)",
+                              borderRadius: 99,
+                              transition: "width .6s ease",
+                            }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="empty">Aún no hay planillas procesadas.</p>
+                  )}
+                  <button
+                    className="ghost-button"
+                    style={{ marginTop: 16, fontSize: "0.78rem" }}
+                    onClick={() => loadDashboard()}
+                  >↺ Actualizar</button>
+                </article>
+
+                {/* actividad reciente */}
+                <article className="panel" style={{ padding: "20px 22px" }}>
+                  <h3 style={{ marginBottom: 12, fontSize: "0.9rem" }}>Actividad reciente</h3>
+                  {dashboard?.ultimasPlanillas?.length ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {dashboard.ultimasPlanillas.map(p => (
+                        <div key={p.id_planilla} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: "0.82rem" }}>
+                          <div>
+                            <strong style={{ color: "var(--ink)" }}>{p.nombreEmpleado}</strong>
+                            <span style={{ color: "var(--muted)", marginLeft: 8 }}>{p.periodo}</span>
+                          </div>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <strong style={{ color: "#05a27e" }}>{fmt(p.salarioNeto)}</strong>
+                            <button
+                              className="ghost-button"
+                              style={{ fontSize: "0.7rem", padding: "2px 7px" }}
+                              onClick={() => generarBoletaPDF(p)}
+                              title="PDF"
+                            >📄</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="empty">Sin actividad reciente.</p>
+                  )}
+                </article>
+              </div>
+
+              {/* ── plantilla de empleados ──────────────────────────────── */}
+              <article className="panel" style={{ padding: "20px 22px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                  <h3 style={{ fontSize: "0.9rem", margin: 0 }}>Plantilla · {employees.length} empleados</h3>
+                  <button className="ghost-button" style={{ fontSize: "0.78rem" }} onClick={() => setActiveSection("empleados")}>Gestionar →</button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
+                  {employees.map(emp => (
+                    <div key={emp.id_empleado} style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "var(--radius)", padding: "12px 14px" }}>
+                      <strong style={{ fontSize: "0.85rem", color: "var(--ink)" }}>{emp.nombreCompleto}</strong>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: "0.75rem", color: "var(--muted)" }}>
+                        <span style={{ background: emp.tipo === "DOCENTE" ? "#e8f4fd" : "#fdf0e8", color: emp.tipo === "DOCENTE" ? "#0570de" : "#c25b0a", borderRadius: 99, padding: "1px 8px", fontWeight: 600 }}>{emp.tipo}</span>
+                        <span style={{ fontWeight: 700, color: "var(--ink)" }}>${Number(emp.salarioBaseVigente).toFixed(2)}<span style={{ fontWeight: 400, color: "var(--muted)" }}>/mes</span></span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </article>
+
+            </div>
+          );
+        })()}
 
         {canManage && activeSection === "empleados" && (
           <section className="grid management-layout">
