@@ -160,6 +160,9 @@ function App() {
 
   function showBanner(message, tone = "success") {
     setBanner({ message, tone });
+    // Auto-dismiss: errores a los 6 s, éxitos a los 4 s
+    const delay = tone === "error" ? 6000 : 4000;
+    setTimeout(() => setBanner(null), delay);
   }
 
   function clearSession() {
@@ -176,6 +179,7 @@ function App() {
 
   async function handleLogin(event) {
     event.preventDefault();
+    setBanner(null); // limpiar error anterior antes de intentar
     try {
       setLoading(true);
       const session = await apiRequest("/auth/login", {
@@ -489,7 +493,12 @@ function App() {
               <button className="primary-button" type="submit" disabled={loading}>
                 {loading ? "Validando..." : "Entrar al sistema"}
               </button>
-              {banner && <p className={`banner ${banner.tone}`}>{banner.message}</p>}
+              {banner && (
+                <p className={`banner ${banner.tone}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <span>{banner.message}</span>
+                  <button onClick={() => setBanner(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1rem", opacity: 0.7, padding: "0 4px", color: "inherit" }}>✕</button>
+                </p>
+              )}
             </form>
           </div>
         </section>
@@ -534,7 +543,12 @@ function App() {
           </div>
         </header>
 
-        {banner && <div className={`banner ${banner.tone}`}>{banner.message}</div>}
+        {banner && (
+          <div className={`banner ${banner.tone}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+            <span>{banner.message}</span>
+            <button onClick={() => setBanner(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1rem", opacity: 0.7, padding: "0 4px", color: "inherit" }}>✕</button>
+          </div>
+        )}
 
         {activeSection === "resumen" && (
           <section className="grid two-up">
