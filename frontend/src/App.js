@@ -32,6 +32,54 @@ const emptyPayroll = {
   bonificacion: 0,
 };
 
+// ─── Calculadora en tiempo real (replica la lógica del backend) ────────────
+function calcularPreviewPlanilla(salarioBase, horasTrabajadas, bonificacion) {
+  const base   = Number(salarioBase)    || 0;
+  const horas  = Number(horasTrabajadas) || 0;
+  const bono   = Number(bonificacion)   || 0;
+  const tarifa = base / 160;
+
+  const horasOrd = Math.min(horas, 160);
+  const horasExt = Math.max(0, horas - 160);
+  const salOrd   = tarifa * horasOrd;
+  const salExt   = tarifa * 2 * horasExt;
+  const bruto    = salOrd + salExt + bono;
+
+  // ISSS: 3 % tope $1 000
+  const isss = Math.min(bruto, 1000) * 0.03;
+  // AFP: 7.25 % sin tope
+  const afp  = bruto * 0.0725;
+  // ISR: tabla DGII mensual (base = bruto - isss - afp)
+  const baseRenta = bruto - isss - afp;
+  let renta = 0;
+  if (baseRenta > 2038.10) {
+    renta = (baseRenta - 2038.10) * 0.30 + 288.57;
+  } else if (baseRenta > 895.24) {
+    renta = (baseRenta - 895.24) * 0.20 + 60.00;
+  } else if (baseRenta > 472.00) {
+    renta = (baseRenta - 472.00) * 0.10 + 17.67;
+  }
+
+  const totalDesc = isss + afp + renta;
+  const neto      = bruto - totalDesc;
+
+  return {
+    tarifa: round2(tarifa),
+    horasOrd,
+    horasExt,
+    salOrd:  round2(salOrd),
+    salExt:  round2(salExt),
+    bruto:   round2(bruto),
+    isss:    round2(isss),
+    afp:     round2(afp),
+    renta:   round2(renta),
+    total:   round2(totalDesc),
+    neto:    round2(neto),
+  };
+}
+function round2(n) { return Math.round(n * 100) / 100; }
+// ──────────────────────────────────────────────────────────────────────────
+
 function App() {
   const [token, setToken] = useState(() => localStorage.getItem("planilla.token") || "");
   const [profile, setProfile] = useState(null);
@@ -605,7 +653,8 @@ function App() {
                   <input value={employeeForm.direccion} onChange={(event) => setEmployeeForm({ ...employeeForm, direccion: event.target.value })} />
                 </label>
                 <label>
-                  Salario base
+                  Salario base mensual
+                  <span style={{ fontWeight: 400, color: "var(--muted)", fontSize: "0.78rem" }}> (para 160 h ordinarias)</span>
                   <input
                     type="number"
                     min="0"
@@ -613,6 +662,11 @@ function App() {
                     value={employeeForm.salarioBaseVigente}
                     onChange={(event) => setEmployeeForm({ ...employeeForm, salarioBaseVigente: event.target.value })}
                   />
+                  {Number(employeeForm.salarioBaseVigente) > 0 && (
+                    <span style={{ fontSize: "0.78rem", color: "var(--accent)", marginTop: 4, display: "block" }}>
+                      Tarifa/hora resultante: <strong>${(Number(employeeForm.salarioBaseVigente) / 160).toFixed(4)}</strong> · horas extras al doble: <strong>${(Number(employeeForm.salarioBaseVigente) / 160 * 2).toFixed(4)}</strong>
+                    </span>
+                  )}
                 </label>
               </div>
               <div className="action-row">
@@ -637,7 +691,12 @@ function App() {
                       <div>
                         <strong>{employee.nombreCompleto}</strong>
                         <p>{employee.tipo} · DUI {employee.identificacion}</p>
-                        <span>${Number(employee.salarioBaseVigente).toFixed(2)}</span>
+                        <span style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+                          <span>Base mensual: <strong>${Number(employee.salarioBaseVigente).toFixed(2)}</strong></span>
+                          <span style={{ color: "var(--accent)", fontSize: "0.82rem" }}>
+                            Tarifa/hora: <strong>${(Number(employee.salarioBaseVigente) / 160).toFixed(4)}</strong>
+                          </span>
+                        </span>
                       </div>
                       <div className="action-row compact">
                         <button className="ghost-button" onClick={() => selectEmployeeForEdit(employee)}>Editar</button>
@@ -708,79 +767,173 @@ function App() {
           </section>
         )}
 
-        {canManage && activeSection === "planillas" && (
-          <section className="grid two-up">
-            <form className="panel" onSubmit={handleProcessPayroll}>
-              <h3>Procesar nueva planilla</h3>
-              <div className="field-grid">
-                <label>
-                  Empleado
-                  <select value={payrollForm.idEmpleado} onChange={(event) => setPayrollForm({ ...payrollForm, idEmpleado: event.target.value })}>
-                    {employees.map((employee) => (
-                      <option key={employee.id_empleado} value={employee.id_empleado}>
-                        {employee.nombreCompleto}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Período (MM-YYYY)
-                  <input value={payrollForm.periodo} onChange={(event) => setPayrollForm({ ...payrollForm, periodo: event.target.value })} placeholder="05-2026" />
-                </label>
-                <label>
-                  Horas trabajadas
-                  <input
-                    type="number"
-                    min="1"
-                    step="0.5"
-                    value={payrollForm.horasTrabajadas}
-                    onChange={(event) => setPayrollForm({ ...payrollForm, horasTrabajadas: event.target.value })}
-                  />
-                </label>
-                <label>
-                  Bonificación
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={payrollForm.bonificacion}
-                    onChange={(event) => setPayrollForm({ ...payrollForm, bonificacion: event.target.value })}
-                  />
-                </label>
-              </div>
-              <div style={{
-                background: "var(--accent-soft)",
-                border: "1px solid var(--line)",
-                borderRadius: "var(--radius)",
-                padding: "10px 14px",
-                fontSize: "0.78rem",
-                color: "var(--muted)",
-                lineHeight: 1.6,
-                marginBottom: "12px"
-              }}>
-                <strong style={{ color: "var(--ink)", display: "block", marginBottom: 4 }}>
-                  Cálculo de salario — Código de Trabajo El Salvador
-                </strong>
-                <span>≤ 160 h/mes: tarifa ordinaria (salario base ÷ 160).</span><br />
-                <span>&gt; 160 h/mes: horas extras se pagan al <strong>doble</strong> de la tarifa ordinaria (Art. 168 CT).</span><br />
-                <span>Descuentos de ley: ISSS 3 % (tope $1 000) · AFP 7.25 % · ISR según tabla DGII.</span>
-              </div>
-              <button className="primary-button" type="submit">Procesar y guardar</button>
-            </form>
+        {canManage && activeSection === "planillas" && (() => {
+          const selectedEmp = employees.find(e => String(e.id_empleado) === String(payrollForm.idEmpleado));
+          const preview = selectedEmp
+            ? calcularPreviewPlanilla(selectedEmp.salarioBaseVigente, payrollForm.horasTrabajadas, payrollForm.bonificacion)
+            : null;
 
-            <section className="panel">
-              <h3>Accesos rápidos</h3>
-              <div className="quick-actions">
-                <button className="ghost-button" onClick={() => payrollForm.idEmpleado && loadEmployeePayrolls(payrollForm.idEmpleado)}>
-                  Ver historial del empleado seleccionado
+          const rowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid var(--line)", fontSize: "0.83rem" };
+          const labelStyle = { color: "var(--muted)" };
+          const valueStyle = { fontWeight: 600, color: "var(--ink)" };
+          const dangerStyle = { fontWeight: 600, color: "var(--danger)" };
+          const successStyle = { fontWeight: 700, color: "var(--success)", fontSize: "1rem" };
+
+          return (
+            <section className="grid two-up">
+              <form className="panel" onSubmit={handleProcessPayroll}>
+                <h3>Procesar nueva planilla</h3>
+
+                {/* Chip de tarifa/hora del empleado seleccionado */}
+                {selectedEmp && (
+                  <div style={{ background: "var(--accent-soft)", border: "1px solid var(--line)", borderRadius: "var(--radius)", padding: "8px 12px", marginBottom: 12, fontSize: "0.82rem", display: "flex", gap: 16, flexWrap: "wrap" }}>
+                    <span style={{ color: "var(--muted)" }}>Empleado seleccionado:</span>
+                    <strong style={{ color: "var(--ink)" }}>{selectedEmp.nombreCompleto}</strong>
+                    <span style={{ color: "var(--muted)" }}>Salario base:</span>
+                    <strong>${Number(selectedEmp.salarioBaseVigente).toFixed(2)}</strong>
+                    <span style={{ color: "var(--muted)" }}>Tarifa/hora:</span>
+                    <strong style={{ color: "var(--accent)" }}>${preview?.tarifa.toFixed(4)}</strong>
+                    <span style={{ color: "var(--muted)" }}>H. extra:</span>
+                    <strong style={{ color: "var(--accent)" }}>${preview ? (preview.tarifa * 2).toFixed(4) : "—"}</strong>
+                  </div>
+                )}
+
+                <div className="field-grid">
+                  <label>
+                    Empleado
+                    <select value={payrollForm.idEmpleado} onChange={(event) => setPayrollForm({ ...payrollForm, idEmpleado: event.target.value })}>
+                      {employees.map((employee) => (
+                        <option key={employee.id_empleado} value={employee.id_empleado}>
+                          {employee.nombreCompleto}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Período (MM-YYYY)
+                    <input value={payrollForm.periodo} onChange={(event) => setPayrollForm({ ...payrollForm, periodo: event.target.value })} placeholder="05-2026" />
+                  </label>
+                  <label>
+                    Horas trabajadas
+                    <input
+                      type="number"
+                      min="1"
+                      step="0.5"
+                      value={payrollForm.horasTrabajadas}
+                      onChange={(event) => setPayrollForm({ ...payrollForm, horasTrabajadas: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Bonificación
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={payrollForm.bonificacion}
+                      onChange={(event) => setPayrollForm({ ...payrollForm, bonificacion: event.target.value })}
+                    />
+                  </label>
+                </div>
+                <button className="primary-button" type="submit" disabled={loading}>
+                  {loading ? "Procesando..." : "Procesar y guardar"}
                 </button>
-                <button className="ghost-button" onClick={() => payrollForm.periodo && loadPeriodReport(payrollForm.periodo)}>
-                  Ver reporte del período actual
-                </button>
-              </div>
+              </form>
+
+              {/* Panel de cálculo en tiempo real */}
+              <section className="panel">
+                <h3>Vista previa del cálculo</h3>
+                {preview ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                    {/* Horas */}
+                    <div style={{ ...rowStyle, borderBottom: "none", paddingBottom: 2 }}>
+                      <span style={{ ...labelStyle, fontWeight: 600, color: "var(--ink)" }}>Horas trabajadas</span>
+                    </div>
+                    <div style={rowStyle}>
+                      <span style={labelStyle}>Horas ordinarias (≤ 160 h)</span>
+                      <span style={valueStyle}>{preview.horasOrd} h × ${preview.tarifa.toFixed(4)}</span>
+                    </div>
+                    {preview.horasExt > 0 && (
+                      <div style={rowStyle}>
+                        <span style={labelStyle}>Horas extraordinarias (Art. 168 CT)</span>
+                        <span style={{ ...valueStyle, color: "var(--accent)" }}>{preview.horasExt} h × ${(preview.tarifa * 2).toFixed(4)}</span>
+                      </div>
+                    )}
+
+                    {/* Ingresos */}
+                    <div style={{ ...rowStyle, marginTop: 8, borderBottom: "none", paddingBottom: 2 }}>
+                      <span style={{ ...labelStyle, fontWeight: 600, color: "var(--ink)" }}>Ingresos</span>
+                    </div>
+                    <div style={rowStyle}>
+                      <span style={labelStyle}>Salario ordinario</span>
+                      <span style={valueStyle}>${preview.salOrd.toFixed(2)}</span>
+                    </div>
+                    {preview.salExt > 0 && (
+                      <div style={rowStyle}>
+                        <span style={labelStyle}>Recargo horas extras (100 %)</span>
+                        <span style={{ ...valueStyle, color: "var(--accent)" }}>+${preview.salExt.toFixed(2)}</span>
+                      </div>
+                    )}
+                    {preview.bonificacion > 0 && (
+                      <div style={rowStyle}>
+                        <span style={labelStyle}>Bonificación</span>
+                        <span style={{ ...valueStyle, color: "var(--accent)" }}>+${Number(payrollForm.bonificacion).toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div style={{ ...rowStyle, borderTop: "2px solid var(--line)", marginTop: 4, paddingTop: 6 }}>
+                      <span style={{ fontWeight: 700, color: "var(--ink)" }}>Salario bruto</span>
+                      <span style={valueStyle}>${preview.bruto.toFixed(2)}</span>
+                    </div>
+
+                    {/* Descuentos de ley */}
+                    <div style={{ ...rowStyle, marginTop: 10, borderBottom: "none", paddingBottom: 2 }}>
+                      <span style={{ ...labelStyle, fontWeight: 600, color: "var(--ink)" }}>Descuentos de ley</span>
+                    </div>
+                    <div style={rowStyle}>
+                      <span style={labelStyle}>ISSS (3 %, tope $1 000)</span>
+                      <span style={dangerStyle}>−${preview.isss.toFixed(2)}</span>
+                    </div>
+                    <div style={rowStyle}>
+                      <span style={labelStyle}>AFP (7.25 %)</span>
+                      <span style={dangerStyle}>−${preview.afp.toFixed(2)}</span>
+                    </div>
+                    <div style={rowStyle}>
+                      <span style={labelStyle}>ISR / Renta (tabla DGII)</span>
+                      <span style={dangerStyle}>−${preview.renta.toFixed(2)}</span>
+                    </div>
+                    <div style={rowStyle}>
+                      <span style={labelStyle}>Total descuentos</span>
+                      <span style={dangerStyle}>−${preview.total.toFixed(2)}</span>
+                    </div>
+
+                    {/* Neto */}
+                    <div style={{ background: "var(--accent-soft)", borderRadius: "var(--radius)", padding: "10px 14px", marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontWeight: 700, color: "var(--ink)", fontSize: "0.95rem" }}>Salario neto a pagar</span>
+                      <span style={successStyle}>${preview.neto.toFixed(2)}</span>
+                    </div>
+
+                    <p style={{ fontSize: "0.72rem", color: "var(--light-muted)", marginTop: 8, lineHeight: 1.5 }}>
+                      Vista previa estimada · Los valores exactos los confirma el backend al procesar.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="empty">Selecciona un empleado para ver el cálculo.</p>
+                )}
+
+                <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+                  <p style={{ fontSize: "0.78rem", color: "var(--muted)", marginBottom: 8, fontWeight: 600 }}>Accesos rápidos</p>
+                  <div className="quick-actions">
+                    <button className="ghost-button" onClick={() => payrollForm.idEmpleado && loadEmployeePayrolls(payrollForm.idEmpleado)}>
+                      Ver historial del empleado
+                    </button>
+                    <button className="ghost-button" onClick={() => payrollForm.periodo && loadPeriodReport(payrollForm.periodo)}>
+                      Ver reporte del período
+                    </button>
+                  </div>
+                </div>
+              </section>
             </section>
-          </section>
-        )}
+          );
+        })()}
 
         {activeSection === "reportes" && (
           <section className="grid">
