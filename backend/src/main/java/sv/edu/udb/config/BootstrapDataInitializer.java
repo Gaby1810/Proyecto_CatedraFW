@@ -1,5 +1,7 @@
 package sv.edu.udb.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
@@ -14,10 +16,14 @@ import sv.edu.udb.repository.EmpleadoRepository;
 import sv.edu.udb.repository.RolRepository;
 import sv.edu.udb.repository.UsuarioRepository;
 
+import java.text.Normalizer;
 import java.time.LocalDate;
+import java.util.List;
 
 @Component
 public class BootstrapDataInitializer implements CommandLineRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(BootstrapDataInitializer.class);
 
     @Value("${app.bootstrap-demo-data:true}")
     private boolean bootstrapDemoData;
@@ -59,6 +65,7 @@ public class BootstrapDataInitializer implements CommandLineRunner {
     public void run(String... args) {
         ensureRoles();
         ensureDemoData();
+        ensureAllEmployeesHaveAccess();
     }
 
     private void ensureRoles() {
@@ -103,6 +110,59 @@ public class BootstrapDataInitializer implements CommandLineRunner {
             descuento.setVigencia(LocalDate.now());
             return descuentoRepository.save(descuento);
         });
+    }
+
+    /**
+     * Crea automáticamente un acceso ROLE_EMPLEADO para cada empleado que aún
+     * no tenga usuario vinculado.
+     *
+     * Username: primera parte del nombre sin tildes + punto + apellido sin tildes,
+     *           todo en minúsculas y sin espacios (ej. "Gabriela Figueroa" → "gabriela.figueroa").
+     *           Si el username ya está ocupado se usa "empleado{id}" como fallback.
+     * Password por defecto: Empleado123!
+     *
+     * Es idempotente — se puede ejecutar múltiples veces sin duplicar registros.
+     */
+    private void ensureAllEmployeesHaveAccess() {
+        if (!bootstrapDemoData) {
+            return;
+        }
+        Rol rolEmpleado = rolRepository.findByNombreRol("ROLE_EMPLEADO")
+                .orElseThrow(() -> new IllegalStateException("Rol ROLE_EMPLEADO no encontrado"));
+
+        List<Empleado> todos = empleadoRepository.findAll();
+        for (Empleado emp : todos) {
+            if (usuarioRepository.existsByEmpleadoId(emp.getId_empleado())) {
+                continue; // ya tiene acceso
+            }
+            String candidato = buildUsername(emp.getNombre(), emp.getApellido());
+            if (usuarioRepository.existsByUsuarioIgnoreCase(candidato)) {
+                candidato = "empleado" + emp.getId_empleado();
+            }
+            if (usuarioRepository.existsByUsuarioIgnoreCase(candidato)) {
+                continue; // fallback también ocupado, no duplicar
+            }
+            Usuario usuario = new Usuario();
+            usuario.setUsuario(candidato);
+            usuario.setContrasena(passwordEncoder.encode("Empleado123!"));
+            usuario.setRol(rolEmpleado);
+            usuario.setEmpleado(emp);
+            usuarioRepository.save(usuario);
+            log.info("[Bootstrap] Usuario creado: {} → {} {} (id={})",
+                    candidato, emp.getNombre(), emp.getApellido(), emp.getId_empleado());
+        }
+    }
+
+    /** Convierte "Gabriela Figueroa" → "gabriela.figueroa" (sin tildes, sin espacios). */
+    private String buildUsername(String nombre, String apellido) {
+        String n = stripAccents(nombre.trim().split("\\s+")[0]).toLowerCase();
+        String a = stripAccents(apellido.trim().split("\\s+")[0]).toLowerCase();
+        return n + "." + a;
+    }
+
+    private String stripAccents(String s) {
+        String normalized = Normalizer.normalize(s, Normalizer.Form.NFD);
+        return normalized.replaceAll("[^\\p{ASCII}]", "").replaceAll("[^a-zA-Z0-9]", "");
     }
 
     private void createRoleIfMissing(String nombreRol, String descripcion) {

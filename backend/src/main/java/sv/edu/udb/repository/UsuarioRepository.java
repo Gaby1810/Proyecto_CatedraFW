@@ -16,6 +16,9 @@ public interface UsuarioRepository extends JpaRepository<Usuario, Long> {
 
     boolean existsByUsuarioIgnoreCase(String usuario);
 
+    @Query("SELECT COUNT(u) > 0 FROM Usuario u WHERE u.empleado.id_empleado = :idEmpleado")
+    boolean existsByEmpleadoId(@Param("idEmpleado") Long idEmpleado);
+
     @Query("""
             SELECT u
             FROM Usuario u
