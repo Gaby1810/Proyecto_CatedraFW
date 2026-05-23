@@ -32,6 +32,123 @@ const emptyPayroll = {
   bonificacion: 0,
 };
 
+// ─── Generador de boleta PDF (abre ventana de impresión del navegador) ───────
+function generarBoletaPDF(row) {
+  const descuentos  = row.descuentosAplicados || [];
+  const montoIsss   = descuentos.find(d => d.tipo?.toUpperCase() === "ISSS")?.montoDescuento  ?? 0;
+  const montoAfp    = descuentos.find(d => d.tipo?.toUpperCase() === "AFP")?.montoDescuento   ?? 0;
+  const montoRenta  = descuentos.find(d => d.tipo?.toUpperCase() === "RENTA")?.montoDescuento ?? 0;
+  const horasOrd    = Math.min(row.horasTrabajadas, 160);
+  const horasExt    = Math.max(0, row.horasTrabajadas - 160);
+
+  const fmt = (n) => `$${Number(n).toFixed(2)}`;
+  const fecha = new Date().toLocaleDateString("es-SV", { year:"numeric", month:"long", day:"numeric" });
+
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<title>Boleta de Pago — ${row.nombreEmpleado} — ${row.periodo}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Barlow', Arial, sans-serif; font-size: 13px; color: #1a1f36; background: #fff; padding: 40px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #0a2540; padding-bottom: 16px; margin-bottom: 24px; }
+  .brand h1 { font-size: 20px; font-weight: 700; color: #0a2540; }
+  .brand p  { font-size: 11px; color: #697386; margin-top: 2px; }
+  .boleta-title { text-align: right; }
+  .boleta-title h2 { font-size: 16px; font-weight: 700; color: #0570de; }
+  .boleta-title p  { font-size: 11px; color: #697386; margin-top: 2px; }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; background: #f6f9fc; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+  .info-row { display: flex; flex-direction: column; }
+  .info-label { font-size: 10px; font-weight: 600; color: #697386; text-transform: uppercase; letter-spacing: .5px; }
+  .info-value { font-size: 13px; font-weight: 600; color: #1a1f36; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+  th { background: #0a2540; color: #fff; font-size: 11px; font-weight: 600; padding: 8px 12px; text-align: left; }
+  td { padding: 7px 12px; border-bottom: 1px solid #e3e8ef; font-size: 12.5px; }
+  tr:last-child td { border-bottom: none; }
+  .amount { text-align: right; font-weight: 600; }
+  .deduction { color: #df1b41; }
+  .section-title { font-size: 12px; font-weight: 700; color: #0a2540; margin: 18px 0 6px; text-transform: uppercase; letter-spacing: .4px; }
+  .neto-box { background: #0a2540; color: #fff; border-radius: 8px; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+  .neto-box span:first-child { font-size: 14px; font-weight: 600; }
+  .neto-box span:last-child  { font-size: 22px; font-weight: 700; }
+  .footer { margin-top: 28px; border-top: 1px solid #e3e8ef; padding-top: 12px; display: flex; justify-content: space-between; font-size: 10px; color: #8898aa; }
+  .legal { font-size: 9.5px; color: #8898aa; margin-top: 10px; line-height: 1.5; }
+  @media print {
+    body { padding: 20px; }
+    .no-print { display: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="brand">
+    <h1>Educational Control</h1>
+    <p>Sistema de Planillas Institucional · El Salvador</p>
+  </div>
+  <div class="boleta-title">
+    <h2>BOLETA DE PAGO</h2>
+    <p>Período: ${row.periodo} · Emitida: ${fecha}</p>
+  </div>
+</div>
+
+<div class="info-grid">
+  <div class="info-row"><span class="info-label">Empleado</span><span class="info-value">${row.nombreEmpleado}</span></div>
+  <div class="info-row"><span class="info-label">Período</span><span class="info-value">${row.periodo}</span></div>
+  <div class="info-row"><span class="info-label">Horas ordinarias (≤ 160 h)</span><span class="info-value">${horasOrd} h</span></div>
+  <div class="info-row"><span class="info-label">Horas extraordinarias (Art. 168 CT)</span><span class="info-value">${horasExt > 0 ? horasExt + " h" : "—"}</span></div>
+</div>
+
+<p class="section-title">Ingresos</p>
+<table>
+  <thead><tr><th>Concepto</th><th style="text-align:right">Monto</th></tr></thead>
+  <tbody>
+    <tr><td>Salario base por horas ordinarias (${horasOrd} h)</td><td class="amount">${fmt(row.salarioBruto - row.bonificacion - (horasExt > 0 ? montoAfp : 0))}</td></tr>
+    ${horasExt > 0 ? `<tr><td>Recargo horas extraordinarias — 100 % (Art. 168 CT)</td><td class="amount" style="color:#0570de">+${fmt(row.salarioBruto - (row.salarioBruto / (1 + 0)) )}</td></tr>` : ""}
+    ${row.bonificacion > 0 ? `<tr><td>Bonificación adicional</td><td class="amount">+${fmt(row.bonificacion)}</td></tr>` : ""}
+    <tr style="background:#f6f9fc"><td style="font-weight:700">Salario bruto</td><td class="amount" style="font-weight:700">${fmt(row.salarioBruto)}</td></tr>
+  </tbody>
+</table>
+
+<p class="section-title">Deducciones de ley</p>
+<table>
+  <thead><tr><th>Descuento</th><th>Base legal</th><th style="text-align:right">Monto</th></tr></thead>
+  <tbody>
+    <tr><td>ISSS — Seguro Social</td><td>3 % s/ salario, tope $1 000 (Ley del ISSS, Art. 29)</td><td class="amount deduction">−${fmt(montoIsss)}</td></tr>
+    <tr><td>AFP — Fondo de Pensiones</td><td>7.25 % s/ salario, sin tope (Ley SAP)</td><td class="amount deduction">−${fmt(montoAfp)}</td></tr>
+    <tr><td>ISR — Impuesto sobre la Renta</td><td>Tabla DGII mensual (Cód. Tributario Art. 156)</td><td class="amount deduction">−${fmt(montoRenta)}</td></tr>
+    <tr style="background:#f6f9fc"><td colspan="2" style="font-weight:700">Total deducciones</td><td class="amount deduction" style="font-weight:700">−${fmt(row.totalDescuentos)}</td></tr>
+  </tbody>
+</table>
+
+<div class="neto-box">
+  <span>Salario neto a pagar</span>
+  <span>${fmt(row.salarioNeto)}</span>
+</div>
+
+<div class="legal">
+  Cálculo aplicado bajo el Código de Trabajo de la República de El Salvador (CT) y legislación fiscal vigente.
+  Art. 161 CT: jornada ordinaria 8 h/día, 44 h/semana. Art. 168 CT: horas extras al doble de tarifa ordinaria.
+  Ley del ISSS Art. 29: cuota empleado 3 %, base máxima $1 000/mes. Ley SAP: AFP empleado 7.25 %.
+  Código Tributario Art. 156: retención ISR mensual según tabla DGII.
+</div>
+
+<div class="footer">
+  <span>Educational Control · Sistema de Planillas Institucional</span>
+  <span>Documento generado el ${fecha}</span>
+</div>
+
+<script>window.onload = function(){ window.print(); }</script>
+</body>
+</html>`;
+
+  const win = window.open("", "_blank", "width=800,height=900");
+  win.document.write(html);
+  win.document.close();
+}
+// ──────────────────────────────────────────────────────────────────────────
+
 // ─── Calculadora en tiempo real (replica la lógica del backend) ────────────
 function calcularPreviewPlanilla(salarioBase, horasTrabajadas, bonificacion) {
   const base   = Number(salarioBase)    || 0;
@@ -332,18 +449,19 @@ function App() {
       const response = await apiRequest("/planillas/procesar", {
         method: "POST",
         body: JSON.stringify({
-          ...payrollForm,
           idEmpleado: Number(payrollForm.idEmpleado),
+          periodo: payrollForm.periodo,
           horasTrabajadas: Number(payrollForm.horasTrabajadas),
-          bonificacion: Number(payrollForm.bonificacion),
+          bonificacion: 0,   // sin bonificación — el cálculo es solo por horas
         }),
       });
-      showBanner(`Planilla procesada para ${response.nombreEmpleado}. Neto: $${response.salarioNeto.toFixed(2)}`);
-      await loadEmployeePayrolls(payrollForm.idEmpleado);
+      showBanner(`✅ Planilla procesada — ${response.nombreEmpleado} · Neto: $${response.salarioNeto.toFixed(2)}`);
+      // Carga el historial de manera independiente (no bloquea el botón)
+      loadEmployeePayrolls(payrollForm.idEmpleado).catch(() => {});
     } catch (error) {
       showBanner(error.message, "error");
     } finally {
-      setLoading(false);
+      setLoading(false);   // siempre se libera el botón
     }
   }
 
@@ -413,12 +531,12 @@ function App() {
               <th>Período</th>
               <th title="Horas ordinarias (≤ 160 h)">H. Ord.</th>
               <th title="Horas extraordinarias — recargo 100 % (Art. 168 CT)">H. Extra</th>
-              <th>Bonificación</th>
               <th>Salario bruto</th>
-              <th title="ISSS empleado: 3 % s/ salario, tope $1 000 (Ley del ISSS Art. 29)">ISSS (3 %)</th>
-              <th title="AFP empleado: 7.25 % s/ salario, sin tope (Ley SAP)">AFP (7.25 %)</th>
-              <th title="Retención ISR mensual según tabla DGII (Cód. Tributario Art. 156)">ISR / Renta</th>
+              <th title="ISSS empleado: 3 % s/ salario, tope $1 000 (Ley del ISSS Art. 29)">ISSS</th>
+              <th title="AFP empleado: 7.25 % s/ salario, sin tope (Ley SAP)">AFP</th>
+              <th title="Retención ISR mensual según tabla DGII (Cód. Tributario Art. 156)">ISR</th>
               <th>Salario neto</th>
+              <th>Boleta</th>
             </tr>
           </thead>
           <tbody>
@@ -439,12 +557,21 @@ function App() {
                       ? <strong style={{ color: "var(--accent)" }}>{horasExt} h</strong>
                       : <span style={{ color: "var(--light-muted)" }}>—</span>}
                   </td>
-                  <td>${Number(row.bonificacion).toFixed(2)}</td>
                   <td>${Number(row.salarioBruto).toFixed(2)}</td>
                   <td style={{ color: "var(--danger)" }}>−${montoIsss.toFixed(2)}</td>
                   <td style={{ color: "var(--danger)" }}>−${montoAfp.toFixed(2)}</td>
                   <td style={{ color: "var(--danger)" }}>−${montoRenta.toFixed(2)}</td>
-                  <td><strong>${Number(row.salarioNeto).toFixed(2)}</strong></td>
+                  <td><strong style={{ color: "var(--success)" }}>${Number(row.salarioNeto).toFixed(2)}</strong></td>
+                  <td>
+                    <button
+                      className="ghost-button"
+                      style={{ fontSize: "0.75rem", padding: "4px 10px" }}
+                      onClick={() => generarBoletaPDF(row)}
+                      title="Descargar boleta en PDF"
+                    >
+                      📄 PDF
+                    </button>
+                  </td>
                 </tr>
               );
             })}
@@ -813,25 +940,19 @@ function App() {
                     Período (MM-YYYY)
                     <input value={payrollForm.periodo} onChange={(event) => setPayrollForm({ ...payrollForm, periodo: event.target.value })} placeholder="05-2026" />
                   </label>
-                  <label>
+                  <label className="field-span">
                     Horas trabajadas
                     <input
                       type="number"
                       min="1"
+                      max="744"
                       step="0.5"
                       value={payrollForm.horasTrabajadas}
                       onChange={(event) => setPayrollForm({ ...payrollForm, horasTrabajadas: event.target.value })}
                     />
-                  </label>
-                  <label>
-                    Bonificación
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={payrollForm.bonificacion}
-                      onChange={(event) => setPayrollForm({ ...payrollForm, bonificacion: event.target.value })}
-                    />
+                    <span style={{ fontSize: "0.76rem", color: "var(--muted)", marginTop: 4, display: "block" }}>
+                      Ordinarias: hasta 160 h · Extraordinarias: más de 160 h (al doble, Art. 168 CT)
+                    </span>
                   </label>
                 </div>
                 <button className="primary-button" type="submit" disabled={loading}>
@@ -871,12 +992,6 @@ function App() {
                       <div style={rowStyle}>
                         <span style={labelStyle}>Recargo horas extras (100 %)</span>
                         <span style={{ ...valueStyle, color: "var(--accent)" }}>+${preview.salExt.toFixed(2)}</span>
-                      </div>
-                    )}
-                    {preview.bonificacion > 0 && (
-                      <div style={rowStyle}>
-                        <span style={labelStyle}>Bonificación</span>
-                        <span style={{ ...valueStyle, color: "var(--accent)" }}>+${Number(payrollForm.bonificacion).toFixed(2)}</span>
                       </div>
                     )}
                     <div style={{ ...rowStyle, borderTop: "2px solid var(--line)", marginTop: 4, paddingTop: 6 }}>
