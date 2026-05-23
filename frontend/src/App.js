@@ -203,6 +203,7 @@ function App() {
   const [activeSection, setActiveSection] = useState("resumen");
   const [banner, setBanner] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [payrollProcessing, setPayrollProcessing] = useState(false);
 
   const [loginForm, setLoginForm] = useState({ usuario: "", contrasena: "" });
   const [employeeForm, setEmployeeForm] = useState(emptyEmployee);
@@ -445,7 +446,7 @@ function App() {
   async function handleProcessPayroll(event) {
     event.preventDefault();
     try {
-      setLoading(true);
+      setPayrollProcessing(true);   // estado propio: no comparte con otras ops
       const response = await apiRequest("/planillas/procesar", {
         method: "POST",
         body: JSON.stringify({
@@ -456,12 +457,12 @@ function App() {
         }),
       });
       showBanner(`✅ Planilla procesada — ${response.nombreEmpleado} · Neto: $${response.salarioNeto.toFixed(2)}`);
-      // Carga el historial de manera independiente (no bloquea el botón)
+      // Carga el historial en segundo plano sin bloquear el botón
       loadEmployeePayrolls(payrollForm.idEmpleado).catch(() => {});
     } catch (error) {
       showBanner(error.message, "error");
     } finally {
-      setLoading(false);   // siempre se libera el botón
+      setPayrollProcessing(false);   // siempre libera el botón, pase lo que pase
     }
   }
 
@@ -955,8 +956,8 @@ function App() {
                     </span>
                   </label>
                 </div>
-                <button className="primary-button" type="submit" disabled={loading}>
-                  {loading ? "Procesando..." : "Procesar y guardar"}
+                <button className="primary-button" type="submit" disabled={payrollProcessing}>
+                  {payrollProcessing ? "Procesando..." : "Procesar y guardar"}
                 </button>
               </form>
 
